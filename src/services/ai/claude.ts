@@ -1,17 +1,39 @@
-import { SYSTEM_PROMPT, createParseEventPrompt, createDailyPlanPrompt, createSmartSchedulingPrompt, createConflictResolutionPrompt } from './prompts';
+import { getSystemPrompt, createParseEventPrompt, createDailyPlanPrompt, createSmartSchedulingPrompt, createConflictResolutionPrompt } from './prompts';
 import type { CalendarEvent, HabitPattern, AIParseResult } from '../../types';
 import { getApiKey } from '../storage/settings';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
+// Conversation history for memory
+type Message = { role: 'user' | 'assistant'; content: string };
+let conversationHistory: Message[] = [];
+
 export function resetClient(): void {
-  // No-op for fetch-based implementation
+  conversationHistory = [];
 }
 
-async function sendMessage(prompt: string): Promise<string> {
+export function clearConversationHistory(): void {
+  conversationHistory = [];
+}
+
+export function getConversationHistory(): Message[] {
+  return [...conversationHistory];
+}
+
+async function sendMessage(prompt: string, useHistory: boolean = false): Promise<string> {
   const apiKey = await getApiKey();
   if (!apiKey) {
     throw new Error('API key not configured. Please add your Claude API key in Settings.');
+  }
+
+  // Build messages array
+  let messages: Message[];
+  if (useHistory) {
+    // Add new user message to history
+    conversationHistory.push({ role: 'user', content: prompt });
+    messages = [...conversationHistory];
+  } else {
+    messages = [{ role: 'user', content: prompt }];
   }
 
   const response = await fetch(ANTHROPIC_API_URL, {
@@ -25,15 +47,17 @@ async function sendMessage(prompt: string): Promise<string> {
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: [
-        { role: 'user', content: prompt }
-      ],
+      system: getSystemPrompt(),
+      messages,
     }),
   });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: { message: response.statusText } }));
+    // Remove the failed message from history
+    if (useHistory) {
+      conversationHistory.pop();
+    }
     throw new Error(error.error?.message || `API request failed: ${response.status}`);
   }
 
@@ -41,6 +65,14 @@ async function sendMessage(prompt: string): Promise<string> {
   const content = data.content[0];
 
   if (content.type === 'text') {
+    // Add assistant response to history
+    if (useHistory) {
+      conversationHistory.push({ role: 'assistant', content: content.text });
+      // Keep history manageable (last 20 messages)
+      if (conversationHistory.length > 20) {
+        conversationHistory = conversationHistory.slice(-20);
+      }
+    }
     return content.text;
   }
 
@@ -49,8 +81,9 @@ async function sendMessage(prompt: string): Promise<string> {
 
 export async function parseNaturalLanguage(input: string): Promise<AIParseResult> {
   try {
+    // History is sent by sendMessage via conversationHistory — no need to embed it again
     const prompt = createParseEventPrompt(input, new Date());
-    const response = await sendMessage(prompt);
+    const response = await sendMessage(prompt, true); // useHistory=true sends full history
 
     // Try to parse JSON from the response
     const jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -215,9 +248,9 @@ export async function getConflictResolution(
   }
 }
 
-export async function chat(message: string): Promise<string> {
+export async function chat(message: string, useHistory: boolean = true): Promise<string> {
   try {
-    return await sendMessage(message);
+    return await sendMessage(message, useHistory);
   } catch (error) {
     console.error('Chat failed:', error);
     throw error;

@@ -16,6 +16,8 @@ export function Settings() {
   const [darkMode, setDarkMode] = useState(false);
   const [notifications, setNotifications] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
+  const [testError, setTestError] = useState('');
 
   useEffect(() => {
     if (settings) {
@@ -51,6 +53,39 @@ export function Settings() {
       console.error('Failed to save settings:', error);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleTestKey = async () => {
+    const key = apiKey.trim();
+    if (!key) return;
+    setTestStatus('testing');
+    setTestError('');
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 10,
+          messages: [{ role: 'user', content: 'Hi' }],
+        }),
+      });
+      if (resp.ok) {
+        setTestStatus('ok');
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        setTestStatus('error');
+        setTestError(data.error?.message || `HTTP ${resp.status}`);
+      }
+    } catch (e) {
+      setTestStatus('error');
+      setTestError(e instanceof Error ? e.message : 'Network error');
     }
   };
 
@@ -134,7 +169,23 @@ export function Settings() {
                   )}
                 </button>
               </div>
-              <p className="text-xs text-gray-500 mt-1">
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={handleTestKey}
+                  disabled={!apiKey.trim() || testStatus === 'testing'}
+                  className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                >
+                  {testStatus === 'testing' ? 'Testing…' : 'Test Connection'}
+                </button>
+                {testStatus === 'ok' && (
+                  <span className="text-sm text-green-600 dark:text-green-400 font-medium">✓ Key valid</span>
+                )}
+                {testStatus === 'error' && (
+                  <span className="text-sm text-red-600 dark:text-red-400">{testError}</span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
                 Get your API key from{' '}
                 <a
                   href="https://console.anthropic.com/"

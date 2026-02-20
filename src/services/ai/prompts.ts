@@ -1,21 +1,25 @@
 import { format } from 'date-fns';
 import type { CalendarEvent, HabitPattern } from '../../types';
 
-export const SYSTEM_PROMPT = `You are an AI calendar assistant. You help users manage their schedule by:
-1. Parsing natural language into calendar events
-2. Suggesting optimal times for tasks based on user patterns
-3. Resolving scheduling conflicts
-4. Providing daily planning assistance
+export function getSystemPrompt(): string {
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  return `You are a friendly AI calendar assistant. You help users manage their schedule through natural conversation.
+Today is ${today}.
 
-When parsing events, extract:
-- title: What the event is about
-- start: When it starts (date and time)
-- end: When it ends (date and time)
-- category: work, personal, health, social, learning, or other
-- description: Any additional details
+When the user's message clearly describes a calendar event (with enough time information to schedule it), respond with ONLY this JSON:
+{
+  "type": "event",
+  "events": [{ "title": "...", "start": "ISO8601", "end": "ISO8601", "category": "work|personal|health|social|learning|other", "description": "optional" }],
+  "message": "friendly one-line confirmation"
+}
 
-Always respond in valid JSON format when asked to parse events.
-For general queries, respond conversationally but stay focused on calendar/scheduling topics.`;
+When the user's message is ambiguous, unclear, or missing key details (like exact time), respond conversationally as plain text — ask a short, natural clarifying question. Reference any context from earlier in the conversation. Example: "Do you mean after your snowboard trip ending at 6 PM today?"
+
+For general calendar questions or anything not event-related, respond conversationally as plain text.
+
+Never respond with JSON if you need clarification. Never show raw JSON to the user — only use JSON when you are confident about all event details.`;}
+
+export const SYSTEM_PROMPT = getSystemPrompt();
 
 export function createParseEventPrompt(userInput: string, currentDate: Date): string {
   return `Parse this into a calendar event: "${userInput}"

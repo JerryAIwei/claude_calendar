@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { format } from 'date-fns';
 import { useCalendarStore } from '../../stores/calendarStore';
-import { parseNaturalLanguage, chat } from '../../services/ai/claude';
+import { chat, clearConversationHistory } from '../../services/ai/claude';
 import type { AIMessage, CalendarEvent } from '../../types';
 
 export function AIChat() {
@@ -49,39 +49,46 @@ export function AIChat() {
     setIsLoading(true);
 
     try {
-      // First, try to parse as an event
-      const parseResult = await parseNaturalLanguage(input);
+      // Single unified call — Claude decides whether to return JSON or chat naturally
+      const response = await chat(input);
 
-      if (parseResult.success && parseResult.events.length > 0) {
-        // We found events - ask for confirmation
-        setPendingEvents(parseResult.events);
+      // Check if response contains an event JSON
+      const jsonMatch = response.match(/\{\s*"type"\s*:\s*"event"[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.type === 'event' && parsed.events?.length > 0) {
+            const events = parsed.events.map((e: Record<string, unknown>) => ({
+              ...e,
+              start: e.start ? new Date(e.start as string) : new Date(),
+              end: e.end ? new Date(e.end as string) : new Date(),
+            }));
+            setPendingEvents(events);
 
-        const eventDescriptions = parseResult.events.map(e =>
-          `"${e.title}" on ${e.start ? format(new Date(e.start), 'MMM d, yyyy h:mm a') : 'TBD'}`
-        ).join(', ');
+            const eventDescriptions = events.map((e: { title?: string; start?: Date }) =>
+              `"${e.title}" on ${e.start ? format(e.start, 'MMM d, yyyy h:mm a') : 'TBD'}`
+            ).join(', ');
 
-        const assistantMessage: AIMessage = {
-          id: `msg-${Date.now()}`,
-          role: 'assistant',
-          content: `I understood that as: ${eventDescriptions}\n\n${parseResult.message}\n\nWould you like me to add this to your calendar?`,
-          timestamp: new Date(),
-          parsedEvents: parseResult.events,
-        };
-
-        addAIMessage(assistantMessage);
-      } else {
-        // Not an event - treat as a general chat
-        const response = await chat(input);
-
-        const assistantMessage: AIMessage = {
-          id: `msg-${Date.now()}`,
-          role: 'assistant',
-          content: response,
-          timestamp: new Date(),
-        };
-
-        addAIMessage(assistantMessage);
+            addAIMessage({
+              id: `msg-${Date.now()}`,
+              role: 'assistant',
+              content: `Got it! ${parsed.message || ''}\n\nI'll add: ${eventDescriptions}\n\nShall I add this to your calendar?`,
+              timestamp: new Date(),
+              parsedEvents: events,
+            });
+            setIsLoading(false);
+            return;
+          }
+        } catch { /* fall through to plain text */ }
       }
+
+      // Plain conversational response
+      addAIMessage({
+        id: `msg-${Date.now()}`,
+        role: 'assistant',
+        content: response,
+        timestamp: new Date(),
+      });
     } catch (error) {
       const errorMessage: AIMessage = {
         id: `msg-${Date.now()}`,
@@ -179,7 +186,10 @@ export function AIChat() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={clearAIMessages}
+              onClick={() => {
+                clearAIMessages();
+                clearConversationHistory();
+              }}
               className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
               title="Clear chat"
             >
