@@ -37,6 +37,7 @@ interface CalendarState {
   isAIChatOpen: boolean;
   isDailyPlannerOpen: boolean;
   isSettingsOpen: boolean;
+  isTaskListOpen: boolean;
   isLoading: boolean;
   error: string | null;
 
@@ -61,6 +62,7 @@ interface CalendarState {
   toggleAIChat: () => void;
   toggleDailyPlanner: () => void;
   toggleSettings: () => void;
+  toggleTaskList: () => void;
 
   // Settings actions
   updateSettings: (updates: Partial<UserSettings>) => Promise<void>;
@@ -96,6 +98,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   isAIChatOpen: false,
   isDailyPlannerOpen: false,
   isSettingsOpen: false,
+  isTaskListOpen: false,
   isLoading: false,
   error: null,
 
@@ -304,6 +307,10 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   toggleSettings: () => {
     set(state => ({ isSettingsOpen: !state.isSettingsOpen }));
+  },
+
+  toggleTaskList: () => {
+    set(state => ({ isTaskListOpen: !state.isTaskListOpen }));
   },
 
   // Settings

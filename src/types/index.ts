@@ -137,6 +137,25 @@ export interface DailyPlan {
   createdAt: Date;
 }
 
+// Task Types
+export type TaskStatus = 'pending' | 'in-progress' | 'done';
+export type TaskPriority = 'low' | 'medium' | 'high';
+
+export interface Task {
+  id: string;
+  title: string;
+  description?: string;
+  dueDate: Date;
+  category?: EventCategory;
+  priority: TaskPriority;
+  status: TaskStatus;
+  estimatedDuration?: number; // minutes
+  notes?: string;
+  source: 'manual' | 'natural-language';
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // Export/Import Types
 export interface CalendarExport {
   version: string;

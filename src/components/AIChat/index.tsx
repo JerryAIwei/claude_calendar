@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { format } from 'date-fns';
 import { useCalendarStore } from '../../stores/calendarStore';
 import { chat, clearConversationHistory } from '../../services/ai/claude';
+import { createTask, suggestPriority } from '../../services/storage/tasks';
 import type { AIMessage, CalendarEvent } from '../../types';
 
 export function AIChat() {
@@ -51,6 +52,34 @@ export function AIChat() {
     try {
       // Single unified call — Claude decides whether to return JSON or chat naturally
       const response = await chat(input);
+
+      // Check if response contains a task JSON
+      const taskMatch = response.match(/\{\s*"type"\s*:\s*"task"[\s\S]*\}/);
+      if (taskMatch) {
+        try {
+          const parsed = JSON.parse(taskMatch[0]);
+          if (parsed.type === 'task' && parsed.task?.title) {
+            const dueDate = new Date(parsed.task.dueDate);
+            await createTask({
+              title: parsed.task.title,
+              description: parsed.task.description || undefined,
+              dueDate,
+              category: parsed.task.category || 'personal',
+              priority: suggestPriority(dueDate),
+              status: 'pending',
+              source: 'natural-language',
+            });
+            addAIMessage({
+              id: `msg-${Date.now()}`,
+              role: 'assistant',
+              content: `${parsed.message || 'Done!'} I've added "${parsed.task.title}" to your task list. You can view it by clicking the tasks icon in the header.`,
+              timestamp: new Date(),
+            });
+            setIsLoading(false);
+            return;
+          }
+        } catch { /* fall through */ }
+      }
 
       // Check if response contains an event JSON
       const jsonMatch = response.match(/\{\s*"type"\s*:\s*"event"[\s\S]*\}/);
@@ -228,6 +257,7 @@ export function AIChat() {
               <ul className="text-sm mt-2 space-y-1">
                 <li>"Meeting with Sarah tomorrow at 3pm"</li>
                 <li>"Schedule gym for Monday and Wednesday"</li>
+                <li>"Remind me to renew my registration by March 31"</li>
                 <li>"What do I have planned for today?"</li>
               </ul>
             </div>

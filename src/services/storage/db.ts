@@ -1,5 +1,19 @@
 import Dexie, { type Table } from 'dexie';
-import type { CalendarEvent, HabitPattern, Reminder, UserSettings, AIMessage } from '../../types';
+import type { CalendarEvent, HabitPattern, Reminder, UserSettings, AIMessage, Task } from '../../types';
+
+export interface StoredTask extends Omit<Task, 'dueDate' | 'createdAt' | 'updatedAt'> {
+  dueDate: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function toStoredTask(task: Task): StoredTask {
+  return { ...task, dueDate: task.dueDate.toISOString(), createdAt: task.createdAt.toISOString(), updatedAt: task.updatedAt.toISOString() };
+}
+
+export function fromStoredTask(stored: StoredTask): Task {
+  return { ...stored, dueDate: new Date(stored.dueDate), createdAt: new Date(stored.createdAt), updatedAt: new Date(stored.updatedAt) };
+}
 
 // Serializable versions for storage (dates as ISO strings)
 export interface StoredEvent extends Omit<CalendarEvent, 'start' | 'end' | 'createdAt' | 'updatedAt'> {
@@ -30,6 +44,7 @@ export class CalendarDatabase extends Dexie {
   reminders!: Table<StoredReminder, string>;
   settings!: Table<UserSettings & { id: string }, string>;
   aiMessages!: Table<StoredAIMessage, string>;
+  tasks!: Table<StoredTask, string>;
 
   constructor() {
     super('AICalendarDB');
@@ -40,6 +55,15 @@ export class CalendarDatabase extends Dexie {
       reminders: 'id, eventId, triggerTime, dismissed',
       settings: 'id',
       aiMessages: 'id, timestamp'
+    });
+
+    this.version(2).stores({
+      events: 'id, start, end, category, source, createdAt',
+      habits: 'id, category, frequency, updatedAt',
+      reminders: 'id, eventId, triggerTime, dismissed',
+      settings: 'id',
+      aiMessages: 'id, timestamp',
+      tasks: 'id, dueDate, status, priority, category, createdAt'
     });
   }
 }

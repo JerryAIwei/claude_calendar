@@ -1,8 +1,8 @@
 # AI-Powered Personal Calendar — Design Document
 
 > **Repo**: github.com/JerryAIwei/claude_calendar
-> **Last updated**: 2026-02-19
-> **Status**: Working MVP (2 commits)
+> **Last updated**: 2026-02-21
+> **Status**: Working MVP with Task system (3 commits)
 
 ---
 
@@ -43,6 +43,7 @@ src/
 │   │   ├── db.ts               # Dexie schema + serialization helpers
 │   │   ├── events.ts           # Event CRUD
 │   │   ├── habits.ts           # Habit pattern learning
+│   │   ├── tasks.ts            # Task CRUD + urgency/reminder logic
 │   │   └── settings.ts        # User settings + API key
 │   └── scheduler/
 │       ├── conflicts.ts        # Overlap detection
@@ -57,6 +58,7 @@ src/
     ├── EventForm/              # Create / edit modal
     ├── AIChat/                 # Conversational AI panel
     ├── DailyPlanner/           # AI-generated daily schedule panel
+    ├── TaskList/               # Deadline-based task panel
     └── Settings/               # API key, preferences, export
 ```
 
@@ -95,6 +97,30 @@ src/
 }
 ```
 
+### Task
+```ts
+{
+  id: string;
+  title: string;
+  description?: string;
+  dueDate: Date;                // deadline, no fixed start time
+  category?: EventCategory;
+  priority: 'low'|'medium'|'high';  // auto-suggested from days until due
+  status: 'pending'|'in-progress'|'done';
+  source: 'manual'|'natural-language';
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+Priority auto-assign: ≤7 days → high, ≤21 days → medium, >21 days → low.
+
+Progressive reminder schedule (`computeReminderDates`):
+- >30 days out: remind at 21d, 14d, 7d, 3d, 1d before
+- >14 days: 14d, 7d, 3d, 1d
+- >7 days: 7d, 3d, 1d
+- ≤7 days: 3d, 2d, 1d, day-of
+
 ### UserSettings (IndexedDB, id = "user-settings")
 ```ts
 {
@@ -121,7 +147,10 @@ All user input goes through a **single** `chat()` call. There is no separate "pa
 - Ask a clarifying question in plain text when details are missing
 - Respond conversationally for general questions
 
-The AIChat component inspects the response: if it contains `"type": "event"` JSON it shows a confirmation card; otherwise it shows the text as a chat bubble.
+The AIChat component inspects the response:
+- `"type": "task"` JSON → immediately saves to IndexedDB via `createTask()`, shows confirmation bubble
+- `"type": "event"` JSON → shows confirmation card, waits for user to click "Add to Calendar"
+- Plain text → shows as a chat bubble (may ask clarifying question)
 
 ```
 User input
@@ -129,9 +158,10 @@ User input
     ▼
 chat(input, useHistory=true)
     │
-    ├── Claude returns JSON  ──► show event confirmation → user confirms → addEvent()
+    ├── JSON type=task   ──► createTask() immediately → confirm bubble
+    ├── JSON type=event  ──► show event card → user confirms → addEvent()
     │
-    └── Claude returns text ──► show as chat bubble (may ask clarifying question)
+    └── Plain text       ──► show as chat bubble
 ```
 
 ### 5.2 Conversation Memory
@@ -149,7 +179,8 @@ This gives the AI full context across a session — e.g., "remind me after the s
 
 `getSystemPrompt()` is called fresh per request (not a static constant) so today's date is always accurate. It sets:
 - Current date
-- JSON schema for event responses
+- JSON schema for **event** responses (`"type": "event"`)
+- JSON schema for **task** responses (`"type": "task"`) — triggered when describing a to-do with a deadline but no specific start time
 - Instruction to ask clarifying questions conversationally rather than returning failure JSON
 
 ### 5.4 Other AI Functions
@@ -164,7 +195,9 @@ This gives the AI full context across a session — e.g., "remind me after the s
 
 ## 6. Storage Layer (IndexedDB via Dexie)
 
-### Schema (v1)
+### Schema
+
+**v1** — original tables:
 
 | Table | Primary key | Indexed fields |
 |---|---|---|
@@ -173,6 +206,12 @@ This gives the AI full context across a session — e.g., "remind me after the s
 | `reminders` | `id` | `eventId`, `triggerTime`, `dismissed` |
 | `settings` | `id` | — |
 | `aiMessages` | `id` | `timestamp` |
+
+**v2** — adds:
+
+| Table | Primary key | Indexed fields |
+|---|---|---|
+| `tasks` | `id` | `dueDate`, `status`, `priority`, `category`, `createdAt` |
 
 Dates are stored as ISO 8601 strings (IndexedDB has no native Date type for indexed queries). Serialization/deserialization is handled by `toStored*` / `fromStored*` helpers in `db.ts`.
 
@@ -259,7 +298,34 @@ Stored in IndexedDB under `id = "user-settings"`. Key fields:
 
 ---
 
-## 12. Known Gaps / Future Work
+## 12. Task System
+
+The Task system handles important-but-not-urgent items with future deadlines (e.g. renew registration, file DS160, handle traffic ticket) — distinct from CalendarEvents because tasks have **no fixed start time**, only a deadline.
+
+### UI Panel
+- Opened via the orange checklist icon in the header
+- Sections: **Overdue** / **Due within 7 days** / **Upcoming**
+- Inline add-form (title, notes, deadline date, category; priority auto-suggested)
+- Each card shows: urgency label + colour, due date, category, priority badge
+- Actions per card: ✓ mark done, ⚡ toggle in-progress, 🗑 delete
+
+### AI Integration
+Say "remind me to renew my registration by March 31" → Claude returns `{"type":"task",...}` → task saved immediately to IndexedDB.
+
+### Smart Urgency Logic
+```
+urgencyLabel(task) → { label: string; color: string }
+  Overdue       → red "Overdue"
+  Due today     → red "Due today"
+  1–3 days left → red "Xd left"
+  4–7 days left → orange "Xd left"
+  8–14 days     → yellow "Xd left"
+  15+ days      → green "Xd left"
+```
+
+---
+
+## 13. Known Gaps / Future Work
 
 | Area | Gap | Suggested fix |
 |---|---|---|
@@ -267,15 +333,17 @@ Stored in IndexedDB under `id = "user-settings"`. Key fields:
 | Recurring events | `RecurrenceRule` type is defined but never expanded into instances | Expand recurrences on load |
 | Conflict resolution UI | Detection works; AI resolution exists but there's no UI to apply suggestions | Add a conflict resolution modal |
 | Smart scheduling UI | `getSmartSchedulingSuggestion()` exists in `useAI.ts` but no surface triggers it | Add "Find me a time" button |
+| Task reminders | `computeReminderDates()` exists but not hooked into the reminder checker loop | Hook into `startReminderChecker()` |
 | Data import | Export works; import not implemented | Parse JSON + `bulkCreateEvents()` |
 | Mobile | Components are responsive but week/day grids scroll horizontally on small screens | Refine breakpoints |
 | Tests | Zero automated tests | Add Vitest + React Testing Library |
 
 ---
 
-## 13. Commit History
+## 14. Commit History
 
 | Hash | Description |
 |---|---|
 | `8fd6c31` | Initial commit: full MVP (42 files) |
 | `d333dac` | AI memory, natural conversation, Test Connection button |
+| (next) | Task system: deadline-based to-dos with AI integration |

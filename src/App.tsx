@@ -4,6 +4,7 @@ import { EventForm } from './components/EventForm';
 import { AIChat } from './components/AIChat';
 import { DailyPlanner } from './components/DailyPlanner';
 import { Settings } from './components/Settings';
+import { TaskList } from './components/TaskList';
 import { useCalendar } from './hooks/useCalendar';
 
 function App() {
@@ -58,6 +59,7 @@ function App() {
       <AIChat />
       <DailyPlanner />
       <Settings />
+      <TaskList />
     </div>
   );
 }
