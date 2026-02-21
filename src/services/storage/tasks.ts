@@ -1,7 +1,10 @@
 import { db, toStoredTask, fromStoredTask } from './db';
-import type { Task, TaskStatus, TaskPriority } from '../../types';
+import type { Task, TaskPriority } from '../../types';
 import { generateId } from './events';
 import { differenceInDays, isBefore } from 'date-fns';
+
+// In-memory dedup: tracks task reminders already fired this session
+const notifiedTaskReminders = new Set<string>();
 
 export async function createTask(task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<Task> {
   const now = new Date();
@@ -85,4 +88,25 @@ export function suggestPriority(dueDate: Date): TaskPriority {
   if (days <= 7)  return 'high';
   if (days <= 21) return 'medium';
   return 'low';
+}
+
+// Check which task reminders are due right now (within a 2-minute window).
+// Deduplicates via in-memory Set so each reminder fires once per session.
+export async function checkTaskReminders(): Promise<Array<{ title: string; dueDate: Date }>> {
+  const now = new Date();
+  const WINDOW_MS = 2 * 60 * 1000; // 2-minute window to catch reminders between checks
+  const tasks = await getPendingTasks();
+  const due: Array<{ title: string; dueDate: Date }> = [];
+
+  for (const task of tasks) {
+    for (const rd of computeReminderDates(task.dueDate)) {
+      const key = `${task.id}:${rd.toISOString()}`;
+      const msSince = now.getTime() - rd.getTime();
+      if (!notifiedTaskReminders.has(key) && msSince >= 0 && msSince < WINDOW_MS) {
+        notifiedTaskReminders.add(key);
+        due.push({ title: task.title, dueDate: task.dueDate });
+      }
+    }
+  }
+  return due;
 }

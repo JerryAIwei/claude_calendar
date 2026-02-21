@@ -5,7 +5,6 @@ import { getPendingTasks, updateTask, deleteTask, urgencyLabel, daysUntilDue, su
 import type { Task, TaskPriority, EventCategory } from '../../types';
 
 const CATEGORIES: EventCategory[] = ['work', 'personal', 'health', 'social', 'learning', 'other'];
-const PRIORITIES: TaskPriority[] = ['high', 'medium', 'low'];
 
 const priorityBadge: Record<TaskPriority, string> = {
   high:   'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',

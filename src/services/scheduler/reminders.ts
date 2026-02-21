@@ -1,7 +1,8 @@
-import { addMinutes, isBefore, differenceInMinutes } from 'date-fns';
+import { addMinutes, isBefore, differenceInDays } from 'date-fns';
 import { db, toStoredReminder, fromStoredReminder } from '../storage/db';
 import type { Reminder, CalendarEvent, HabitPattern } from '../../types';
 import { generateId } from '../storage/events';
+import { checkTaskReminders } from '../storage/tasks';
 
 // Create a reminder for an event
 export async function createReminder(
@@ -192,6 +193,28 @@ export async function showReminderNotification(
   }
 }
 
+// Show notification for a task reminder
+export async function showTaskReminderNotification(title: string, dueDate: Date): Promise<void> {
+  const hasPermission = await requestNotificationPermission();
+  if (!hasPermission) return;
+
+  const days = differenceInDays(dueDate, new Date());
+  const body =
+    days < 0  ? `"${title}" is overdue!` :
+    days === 0 ? `"${title}" is due today!` :
+    days === 1 ? `"${title}" is due tomorrow` :
+                 `"${title}" is due in ${days} days`;
+
+  const notification = new Notification('Task Reminder', {
+    body,
+    icon: '/calendar.svg',
+    tag: `task-${title}-${dueDate.toISOString()}`,
+  });
+
+  notification.onclick = () => { window.focus(); notification.close(); };
+  setTimeout(() => notification.close(), 10000);
+}
+
 // Start reminder checking loop
 let reminderInterval: number | null = null;
 
@@ -204,14 +227,20 @@ export function startReminderChecker(
   }
 
   const checkReminders = async () => {
+    // Check event reminders
     const dueReminders = await checkAndTriggerReminders();
-
     for (const reminder of dueReminders) {
       const event = await db.events.get(reminder.eventId);
       if (event) {
         onReminder(reminder, event.title);
         await dismissReminder(reminder.id);
       }
+    }
+
+    // Check task reminders
+    const dueTaskReminders = await checkTaskReminders();
+    for (const { title, dueDate } of dueTaskReminders) {
+      showTaskReminderNotification(title, dueDate);
     }
   };
 
