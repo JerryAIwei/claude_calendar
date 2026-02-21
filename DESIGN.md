@@ -346,4 +346,4 @@ urgencyLabel(task) → { label: string; color: string }
 |---|---|
 | `8fd6c31` | Initial commit: full MVP (42 files) |
 | `d333dac` | AI memory, natural conversation, Test Connection button |
-| (next) | Task system: deadline-based to-dos with AI integration |
+| `7e1135c` | Task system: deadline-based to-dos with AI integration |
